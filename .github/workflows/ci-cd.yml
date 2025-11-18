@@ -20,25 +20,50 @@ jobs:
           distribution: 'temurin'
           cache: maven
       
-      - name: Grant execute permission for Maven wrapper
-        run: chmod +x mvnw
+      - name: Check for Maven wrapper
+        run: |
+          ls -la
+          if [ -f "./mvnw" ]; then
+            echo "Maven wrapper found"
+            chmod +x mvnw
+          else
+            echo "Maven wrapper not found, using system Maven"
+          fi
       
       - name: Build with Maven
-        run: ./mvnw clean package
+        run: |
+          if [ -f "./mvnw" ]; then
+            ./mvnw clean package
+          else
+            mvn clean package
+          fi
       
       - name: Run tests
-        run: ./mvnw test
+        run: |
+          if [ -f "./mvnw" ]; then
+            ./mvnw test
+          else
+            mvn test
+          fi
       
       - name: SonarQube Scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         run: |
-          ./mvnw sonar:sonar \
-            -Dsonar.projectKey=Spring-PetClinic \
-            -Dsonar.projectName='Spring-PetClinic' \
-            -Dsonar.host.url=$SONAR_HOST_URL \
-            -Dsonar.login=$SONAR_TOKEN
+          if [ -f "./mvnw" ]; then
+            ./mvnw sonar:sonar \
+              -Dsonar.projectKey=Spring-PetClinic \
+              -Dsonar.projectName='Spring-PetClinic' \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_TOKEN
+          else
+            mvn sonar:sonar \
+              -Dsonar.projectKey=Spring-PetClinic \
+              -Dsonar.projectName='Spring-PetClinic' \
+              -Dsonar.host.url=$SONAR_HOST_URL \
+              -Dsonar.login=$SONAR_TOKEN
+          fi
       
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
@@ -63,27 +88,12 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_PRIVATE_KEY }}
       
-      - name: Kill existing process
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "pkill -f 'java -jar' || true"
-      
-      - name: Copy JAR file
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: scp -o StrictHostKeyChecking=no *.jar ubuntu@$EC2_HOST:/home/ubuntu/petclinic.jar
-      
-      - name: Start application
+      - name: Deploy to EC2
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST \
-            "nohup java -jar /home/ubuntu/petclinic.jar > /home/ubuntu/app.log 2>&1 &"
-      
-      - name: Wait for startup
-        run: sleep 10
-      
-      - name: Verify running
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-        run: ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "ps aux | grep petclinic"
+          ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "pkill -f 'java -jar' || true"
+          scp -o StrictHostKeyChecking=no *.jar ubuntu@$EC2_HOST:/home/ubuntu/petclinic.jar
+          ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "nohup java -jar /home/ubuntu/petclinic.jar > /home/ubuntu/app.log 2>&1 &"
+          sleep 10
+          ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "ps aux | grep petclinic"
